@@ -86,7 +86,7 @@ public:
    * \param max_iter Specifies the maximum number of iterations to solve the system, if
    *        @c max_iter<0 there is no limit and the algorithm will only return on convergence.
    * \param eps Specifies the precision of the optimum. */
-  NNLS(const MatrixType &A, int max_iter=-1, Scalar eps=1e-10)
+  NNLS(const MatrixType &A, int max_iter=-1, Scalar eps=1e-10, const ColVectorType &diagonal_distance_coefficients = ColVectorType())
     : _max_iter(max_iter), _num_ls(0), _epsilon(eps),
       _A(A), _AtA(_A.cols(), _A.cols()),
       _x(_A.cols()), _w(_A.cols()), _y(_A.cols()),
@@ -96,7 +96,12 @@ public:
     EIGEN_STATIC_ASSERT(!NumTraits<Scalar>::IsComplex, NUMERIC_TYPE_MUST_BE_REAL);
 
     // Precompute A^T*A
-    _AtA = A.transpose() * A;
+    if (diagonal_distance_coefficients.size() > 0) {
+        _AtA = A.transpose() * diagonal_distance_coefficients.asDiagonal() * A;
+    } else
+    {
+        _AtA = A.transpose() * A;
+    }
   }
 
 
@@ -104,7 +109,8 @@ public:
    * The dimension of @c b must be equal to the number of rows of @c A, given to the constructor
    * (of cause). Returns @c true on success and @c false otherwise. The solution can be obtained
    * by the @c x method. */
-  bool solve(const ColVectorType &b, Heuristic heuristic=MAX_DESCENT);
+  bool solve(const ColVectorType& b, const ColVectorType& diagonal_distance_coefficients = ColVectorType(),
+             Heuristic heuristic = MAX_DESCENT);
 
   /** \brief Returns the solution if a problem was solved.
    * If not, an uninitialized vector may be returned. */
@@ -126,10 +132,15 @@ public:
    * Returns @c true on success and @c false otherwise. The result is stored in @c x on exit. */
   static inline bool
   solve(const MatrixType &A, const ColVectorType &b, RowVectorType &x,
-        int max_iter=-1, typename MatrixType::Scalar eps=1e-10)
+        int max_iter=-1, typename MatrixType::Scalar eps=1e-10,
+        const ColVectorType &diagonal_distance_coefficients = ColVectorType())
   {
-    NNLS<MatrixType> nnls(A, max_iter, eps);
-    if (! nnls.solve(b)) { return false; }
+    NNLS<MatrixType> nnls(A, max_iter, eps, diagonal_distance_coefficients);
+    if (! nnls.solve(b, diagonal_distance_coefficients))
+    {
+        x.noalias() = nnls.x();
+        return false;
+    }
     x.noalias() = nnls.x();
     return true;
   }
@@ -301,9 +312,9 @@ void nnls_householder_qr_inplace_solve(const MatrixQR& mat, const HCoeffs &hCoef
 }
 }
 
-
-template<typename MatrixType>
-bool NNLS<MatrixType>::solve(const ColVectorType &b, Heuristic heuristic)
+template <typename MatrixType>
+bool NNLS<MatrixType>::solve(const ColVectorType& b, const ColVectorType& diagonal_distance_coefficients,
+                             Heuristic heuristic)
 {
 #ifdef EIGEN3_NNLS_DEBUG
   std::cerr << "NNLS(): Start..." << std::endl;
@@ -319,7 +330,13 @@ bool NNLS<MatrixType>::solve(const ColVectorType &b, Heuristic heuristic)
   _P.setIdentity(); _Np = 0;
 
   // Precompute A^T*b
-  _Atb = _A.transpose() * b;
+  if (diagonal_distance_coefficients.size() > 0) {
+      _Atb = _A.transpose() * diagonal_distance_coefficients.asDiagonal() * b;
+  }
+  else
+  {
+      _Atb = _A.transpose() * b;
+  }
 
   // OUTER LOOP
   while (true)
